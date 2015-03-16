@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+		<title>Motif Viewer</title>
+		<link href="http://fonts.googleapis.com/css?family=Inconsolata&amp;subset=latin,latin-ext" rel="stylesheet" type="text/css">
+		
+		<link rel="stylesheet" type="text/css" media="screen" href="style.css" />
+		
+		<script src="d3.js"></script>
+		<script src="d3.tip.js"></script>
+		
+		
+		<style>
+			.chord path {
+				fill-opacity: .67;
+				stroke: #000;
+				stroke-width: .5px;
+			}
+		</style>
+		
+		<!-- ================================ START WEBSOCKET COMMUNICATIONS BLOCK ================================ -->
+		<script type="text/javascript">
+			function init(){
+				document.connection.url.value = "ws://localhost:8000/"
+				//document.myform.inputtext.value = "Hello World!"
+				document.connection.disconnectButton.disabled = true;
+			}
+			
+			function doConnect(){
+				/*
+				Just connection handling
+				*/
+				websocket = new WebSocket(document.connection.url.value);
+				websocket.onopen = function(evt) { onOpen(evt) };
+				websocket.onclose = function(evt) { onClose(evt) };
+				websocket.onmessage = function(evt) { onMessage(evt) };
+				websocket.onerror = function(evt) { onError(evt) };
+			}
+			
+			function onOpen(evt){
+				writeToScreen("connected\n");
+				document.connection.connectButton.disabled = true;
+				document.connection.disconnectButton.disabled = false;
+				
+				/*
+				When we open connection, these happen. We draw a basic chord diagram to test for SVG handling and set the cutoff very high. We've also requested all the data already and it should be coming in.
+				*/
+				
+				var connections = [[{'group': 0, 'value': 33}], [{'group': 1, 'value': 11}], [{'group': 2, 'value': 9}]];
+				var labels = {0: "(spacer)", 2: "(spacer)", 1: 'M1.1.0'};
+				/*
+				a great example graph
+				var connections = [
+							[{group: 0, value: 5},{group: 2, value: 5}],
+							[{group: 1, value: 5}],
+							[{group: 3, value: 25}],
+							[{group: 4, value: 8}, {group: 10, value: 8}],
+							[{group: 5, value: 3}],
+							[{group: 15, value: 20}],
+							[{group: 6, value: 5}, {group: 8, value: 5}],
+							[{group: 12, value: 5},{group: 14, value: 5}],
+							[{group: 9, value: 6}],
+							[{group: 7, value: 4}],
+							[{group: 11, value: 50}],
+							[{group: 13, value: 10}],
+						];
+				var labels = {0: "M1.1: h5",
+						          1: "M1.1: s",
+						          2: "M1.1: h3",
+						          3: "unused",
+						          4: "M4.1: h5",
+						          10: "M4.1: s",
+						          5: "M3.1: h5",
+						          7: "M3.1: s",
+						          8: "M3.1: h3",
+						          9: "M4.1: s",
+						          6: "M4.1: h3",
+						          11: "unused",
+						          12: "M1.2: h5",
+						          13: "M1.2: s",
+						          14: "M1.2: h3",
+						          15: "unused"
+						          };
+				*/
+				drawChordDiagram(connections, labels);
+				requestSetEnergyCutoff(1);
+				//requestSequenceList();
+				// requestUpdateControls("all");
+				// requestEnergyGraph(0);
+			}
+			
+			function onClose(evt){
+				writeToScreen("disconnected\n");
+				document.connection.connectButton.disabled = false;
+				document.connection.disconnectButton.disabled = true;
+			}
+			
+			function onMessage(evt){
+				//writeToScreen("response: " + evt.data + '\n');
+				
+				var receivedMessage = JSON.parse(evt.data);
+				
+				switch (receivedMessage["action"]) {
+					case "response-sequence-list":
+						populateSequenceSelection(receivedMessage["data"]);
+						break;
+					case "response-add-match":
+						if(receivedMessage["data"] === true){
+							writeToScreen("Added a match");
+						}
+						else if(receivedMessage["data"]["selected"]){
+							writeToScreen("Added a match");
+							console.log(receivedMessage["data"]["entry"]);
+						}
+						else{
+							writeToScreen("Could not add match:");
+							resolveConflictingMatches(receivedMessage["data"]);
+						}
+						break;
+					case "response-remove-match":
+						if(receivedMessage["data"]["selected"]){
+							writeToScreen("Removed a match");
+							console.log(receivedMessage["data"]["entry"]);
+						}
+						else{
+							writeToScreen("Could not remove match: ");
+							console.log(receivedMessage["data"]["entry"]);
+						}
+						break;
+					case "response-energy-graph":
+						updateEnergyGraph(receivedMessage["data"]);
+						break;
+					case "response-initial-controls":
+						writeToScreen("Received initial controls: ");
+						populateMotifsAndMatches(receivedMessage["data"]);
+						break;
+					case "response-updated-controls":
+						writeToScreen("Received updated controls");
+						break;
+					case "response-update-matches":
+						writeToScreen("Received updated matches controls");
+						updateMatches("2d", receivedMessage["data"]);
+						break;
+					case "response-chord-data":
+						writeToScreen("received chord data");
+						writeToScreen(receivedMessage["data"]["connections"]);
+						writeToScreen(receivedMessage["data"]["labels"]);
+						redrawChordSVG(receivedMessage["data"]["connections"], receivedMessage["data"]["labels"]);
+						break;
+					case "test":
+						writeToScreen("TEST RESPONSE RECEIVED : " + receivedMessage["action"]);
+						break;
+				}
+			}
+			
+			function onError(evt){
+				writeToScreen('error: ' + evt.data + '\n');
+				websocket.close();
+				document.connection.connectButton.disabled = false;
+				document.connection.disconnectButton.disabled = true;
+			}
+			
+			function doSend(message){
+				/* var x = {"k": "w"};
+				JSON.stringify(x)
+				*/
+				writeToScreen("sent: " + JSON.stringify(message) + '\n');
+				websocket.send(JSON.stringify(message));
+			}
+			
+			function writeToScreen(message){
+				/*document.myform.outputtext.value += message
+				document.myform.outputtext.scrollTop = document.myform.outputtext.scrollHeight;*/
+				console.log(message);
+			}
+			
+			function doDisconnect() {
+				websocket.close();
+			}
+			
+			function requestSequenceList(){
+				var msg = {"action" : "request-sequence-list"};
+				doSend(msg);
+			}
+			
+			function requestChangeSequence(data){
+				var msg = {"action" : "request-change-sequence", "data" : JSON.stringify(data)};
+				doSend(msg);
+			}
+			
+			function requestUpdateControls(data){
+				var msg = {"action" : "request-update-controls", "data" : data};
+				doSend(msg);
+			}
+			
+			function requestAddMatch(data){
+				x = data["id"].split("_");
+				var msg = {"action" : "request-add-match", "data" : {"match-type" : x[1], "motif-number" : x[2], "match-number" : x[3]}};
+				doSend(msg);
+			}
+			
+			function requestRemoveMatch(data){
+				x = data["id"].split("_");
+				var msg = {"action" : "request-remove-match", "data" : {"match-type" : x[1], "motif-number" : x[2], "match-number" : x[3]}};
+				doSend(msg);
+			}
+			
+			function requestSetEnergyCutoff(newCutoff){
+				/*
+				Sometimes a fast user can trick the machine.
+				*/
+				if(newCutoff > document.getElementById("energy_rank").max){
+					console.log("requestSetEnergyCutoff: Value too high: " + newCutoff);
+				}
+				else{
+					var msg = {"action" : "request-set-energy-cutoff", "data" : parseInt(newCutoff)};
+					doSend(msg);
+				}
+			}
+			
+			function requestEnergyGraph(){
+				var msg = {"action" : "request-energy-graph"};
+				doSend(msg);
+			}
+			
+			function resolveConflictingMatches(data){
+				/*
+				In the event of a conflicting match, we just try and alert the user for now.
+				*/
+				
+			
+				console.log(data);
+				removeCheck(data["objective"]["motif-type"], parseInt(data["objective"]["motif-number"]), parseInt(data["objective"]["match-number"]));
+				
+
+				match1 = "Motif: " + data["conflicting"]["motif-number"] + " (" + data["conflicting"]["motif-type"] + ")" + " Match: " + data["conflicting"]["match-number"];
+				match2 = "Motif: " + data["objective"]["motif-number"] + " (" + data["objective"]["motif-type"] + ")" + " Match: " + data["objective"]["match-number"];
+				
+				window.alert("Sorry, but a motif conflict occured between the original match:\n\t" + match1 + "\nAnd the one you've just selected:\n\t" + match2 + "\nAs such, I've ignored the newest one.");
+			}
+			
+			function removeCheck(matchType, motifNumber, matchNumber){
+				console.log(matchType, motifNumber, parseInt(matchNumber));
+				x = document.getElementById("match_" + matchType + "_" + motifNumber + "_" + matchNumber + "_checkbox");
+				x.checked = false;
+			}
+			
+			function updateEnergyGraph(data){
+				redrawEnergyGraphSVG(data);
+				document.getElementById("energy_rank").setAttribute("min", 1);
+				document.getElementById("energy_rank").setAttribute("max", data.length);
+			}
+			
+			function clearControls(){
+				document.getElementById("1d_motifs").innerHTML = "";
+				document.getElementById("2d_motifs").innerHTML = "";
+			}
+			
+			function populateSequenceSelection(sequenceList){
+				var select = document.getElementById("sequence_selection");
+				
+				for(index in sequenceList) {
+					select.options[select.options.length] = new Option(sequenceList[index], index);
+				}
+			}
+			
+			function populateMotifsAndMatches(data){
+				clearControls();
+				
+				/*
+				A bit daunting, but the following just tries to lay down the basic motif/match selections
+				*/
+				
+				for(var x = 0; x < data.length; x++){
+					if(data[x].type === "motif_1d"){
+						var ul = document.getElementById("1d_motifs");
+						
+						var sec = document.createElement("section");
+						var h = document.createElement("h5");
+						h.setAttribute("class", "motif_header");
+						var t = document.createTextNode("Motif " + data[x].number);
+						h.appendChild(t);
+						sec.appendChild(h);
+						
+						var subul = document.createElement("ul");
+						subul.setAttribute("id", data[x].type + "_" + data[x].number);
+						
+						sec.appendChild(subul);
+						
+						ul.appendChild(sec);
+					}
+					else if(data[x].type === "match_1d"){
+						var ul = document.getElementById("motif_1d_" + data[x].parent);
+						var subelem = document.createElement("li");
+						subelem.setAttribute("id", data[x].type + "_" + data[x].number);
+						
+						var lbl = document.createElement("label");
+						
+						var check = document.createElement("input");
+						check.setAttribute("id", "match_1d_" + data[x].parent + "_" + data[x].number + "_checkbox");
+						check.setAttribute("type", "checkbox");
+						check.setAttribute("name", "Match " + data[x].number);
+						check.onclick = function(){matchSelection(this)};
+						
+						lbl.appendChild(check)
+						
+						lbl.appendChild(document.createTextNode("Match " + data[x].number))
+						
+						subelem.appendChild(lbl);
+						ul.appendChild(subelem);
+					}
+					else if(data[x].type === "motif_2d"){
+						var ul = document.getElementById("2d_motifs");
+						
+						var sec = document.createElement("section");
+						var h = document.createElement("h5");
+						h.setAttribute("class", "motif_header");
+						var t = document.createTextNode("Motif " + data[x].number);
+						h.appendChild(t);
+						sec.appendChild(h);
+						
+						var subul = document.createElement("ul");
+						subul.setAttribute("id", data[x].type + "_" + data[x].number);
+						
+						sec.appendChild(subul);
+						
+						ul.appendChild(sec);
+					}
+					else if(data[x].type === "match_2d"){
+						var ul = document.getElementById("motif_2d_" + data[x].parent);
+						var subelem = document.createElement("li");
+						subelem.setAttribute("id", data[x].type + "_" + data[x].number);
+						
+						var lbl = document.createElement("label");
+						
+						var check = document.createElement("input");
+						check.setAttribute("id", "match_2d_" + data[x].parent + "_" + data[x].number + "_checkbox");
+						check.setAttribute("type", "checkbox");
+						check.setAttribute("name", "Match " + data[x].number);
+						check.setAttribute("disabled", "disabled");
+						check.onclick = function(){matchSelection(this)};
+						
+						lbl.appendChild(check)
+						lbl.appendChild(document.createTextNode("Match " + data[x].number));
+						lbl.style.color = "#AAAAAA";
+						
+						subelem.appendChild(lbl);
+						ul.appendChild(subelem);
+					}
+				}
+				
+			}
+			
+			function redrawEnergyGraphSVG(data){
+				d3.select("#energy_graph_svg").remove();
+				drawEnergyGraph(data);
+			}
+			
+			function updateMatches(flow, data){
+				// data in format: {motif-number: 114, match-number: 0, enabled: true}
+				if(flow === "2d"){
+				// therefore, 2d
+					for(entry in data){
+						// match_1d_2_0_checkbox
+						if(data[entry]["enabled"]){
+							x = document.getElementById("match_2d_" + data[entry]["motif-number"] + "_" + data[entry]["match-number"] + "_checkbox");
+							x.removeAttribute("disabled");
+							x.parentNode.style.color = "#000000";
+						}
+						else{
+							x = document.getElementById("match_2d_" + data[entry]["motif-number"] + "_" + data[entry]["match-number"] + "_checkbox");
+							x.setAttribute("disabled", "disabled");
+							x.parentNode.style.color = "#AAAAAA";
+						}
+					}
+				}
+			}
+			
+			function redrawChordSVG(connections, labels){
+				d3.select("#chord_diagram_svg").remove();
+				drawChordDiagram(connections, labels);
+			}
+			
+			function changedSequenceSelection(element){
+				var idx = element.selectedIndex;
+				var val = element.options[idx].value;
+				var content = element.options[idx].innerHTML;
+				requestChangeSequence(parseInt(val));
+			}
+			
+			function matchSelection(obj){
+				writeToScreen("matchSelection");
+				if(obj.checked){
+					requestAddMatch(obj);
+				}
+				
+				else{
+					requestRemoveMatch(obj);
+				}
+				//
+				
+			}
+			
+			function requestNewChord(){
+				var msg = {"action" : "request-chord-data"};
+				doSend(msg);
+			}
+			
+			window.addEventListener("load", init, false);
+			window.addEventListener("load", doConnect, false);
+			
+			
+			
+		</script>
+		<!-- ================================ END WEBSOCKET COMMUNICATIONS BLOCK ================================= -->
+		
+	</head>
+	<body>
+		<div id="body_container">
+			<div class="svgcontainer textcentre" id="svgcontainer">
+				<script>
+				/*
+					D3.js is amazing but amazingly complicated. C3.js tries to be D3.js-for-students but doesn't quite have it worked out yet. This in particular requires special modifications to D3, and they're not even "perfect" yet (no tiering, no spacing). The effect is still good.
+				*/
+					function drawChordDiagram(connections, labels){
+						writeToScreen(connections);
+						writeToScreen(labels);
+						//document.getElementById("motif1_checkbox").onclick = writeToScreen("clicked button!");
+						var chord = d3.layout.chord()
+						              .padding(.05)
+						              .connections(connections);
+						
+						var width = 960,
+						    height = 900,
+						    innerRadius = Math.min(width, height) * .30,
+						    outerRadius = innerRadius * 1.1;
+
+						var fill = d3.scale.ordinal()
+						              .domain(d3.range(4))
+						              .range(["#000000", "#FFDD89", "#957244", "#F26223", "#1C86EE", "#4682B4", "#008B00"]);
+						
+						var svg = d3.select("#svgcontainer").append("svg")
+						             .attr("width", width)
+						             .attr("id", "chord_diagram_svg")
+						             .attr("height", height)
+						             .append("g")
+						             .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+						svg.append("g").selectAll("path")
+						   .data(chord.groups)
+						   .enter().append("path")
+						   .style("fill", function(d) {
+							   return fill(d.index);
+							})
+						   .style("stroke", function(d) {
+						       return fill(d.index);
+						   })
+						   .attr("d", d3.svg.arc().innerRadius(innerRadius).outerRadius(outerRadius))
+						   .on("mouseover", fade(.1))
+						   .on("mouseout", fade(1));
+						
+						var ticks = svg.append("g").selectAll("g")
+						               .data(chord.groups)
+						               .enter().append("g").selectAll("g")
+						               .data(groupTicks)
+						               .enter().append("g")
+						               .attr("transform", function(d) {
+							               return "rotate(" + (d.angle * 180 / Math.PI - 90) + ")" + "translate(" + outerRadius + ",0)";
+							           });
+							           
+						ticks.append("line")
+						     .attr("x1", 1)
+						     .attr("y1", 0)
+						     .attr("x2", 5)
+						     .attr("y2", 0)
+						     .style("stroke", "#000");
+						
+						ticks.append("text")
+						     .attr("x", 8)
+						     .attr("dy", ".35em")
+						     .attr("transform", function(d) {
+								     return d.angle > Math.PI ? "rotate(180)translate(-16)" : null;
+							     })
+						     .style("text-anchor", function(d) {
+								     return d.angle > Math.PI ? "end" : null;
+							     })
+						     .text(function(d) { return d.label; });
+						
+						var labels = svg.append("g").selectAll("g")
+						                 .data(chord.groups)
+						                 .enter().append("g").selectAll("g")
+						                 .data(groupLabels)
+						                 .enter().append("g")
+						                 .attr("transform", function(d) {
+							                 return "rotate(" + (d.angle * 180 / Math.PI - 90) + ")" + "translate(" + (outerRadius + 20) + ",0)";
+						                 });
+						
+						labels.append("text")
+						      .attr("x", 8)
+						      .attr("dy", ".35em")
+						      .attr("transform", function(d) {
+								      return d.angle > Math.PI ? "rotate(180)translate(-16)" : null;
+							      })
+						      .style("fill", "#000")
+						      .style("font-size", 20 )
+						      .style("text-anchor", function(d) {
+							      return d.angle > Math.PI ? "end" : null;
+							  })
+						      .text(function(d) {
+							      return d.label;
+						      });
+						
+						svg.append("g")
+						   .attr("class", "chord")
+						   .selectAll("path")
+						   .data(chord.chords)
+						   .enter().append("path")
+						   .attr("d", d3.svg.chord().radius(innerRadius))
+						   .style("fill", function(d) {return fill(d.target.index); })
+						   .style("opacity", 1)
+						   .append("title").text("title");
+						
+						// Returns an array of tick angles and labels, given a group.
+						function groupTicks(d) {
+							var k = (d.endAngle - d.startAngle) / d.value;
+							return d3.range(0, d.value, 10).map(function(v, i) {
+								return {
+									angle: v * k + d.startAngle,
+									label: i % 3 ? null : v / 10 + "decibp"
+								};
+							});
+						}
+						
+						function groupLabels(d) {
+							return [ {angle: (d.startAngle + d.endAngle) / 2, label: labels[d.index]} ];
+						}
+						
+						// Returns an event handler for fading a given chord group.
+						function fade(opacity) {
+							return function(g, i) {
+								svg.selectAll(".chord path")
+								   .filter(function(d) {
+									   return !((i + '') in d.groups);
+								   })
+								   .transition()
+								   .style("opacity", opacity);
+							};
+						}
+					}
+				</script>
+			</div>
+			<div id="controls_container">
+				<div id="connections_container">
+					<h3>MoDAWGS server connection</h3>
+					<form name="connection">
+						<p><textarea style="margin-left: 5%" name="url" cols="20" rows="1"></textarea></p>
+						<input style="margin-left: 5%" type="button" name=connectButton value="Connect" onClick="doConnect();">
+						<input type="button" name=disconnectButton value="Disconnect" onClick="doDisconnect();">
+					</form>
+				</div>
+				<div id="sequence_selection_container">
+					<h3>Select the sequence to be shown</h3>
+						<select name="select" id="sequence_selection" onchange="changedSequenceSelection(this)">
+						</select>
+				</div>
+				
+				<div id="energy">
+					<h3>2D Matches' Minimum Free Energy</h3>
+					<div id="energy_graph">
+						<script>
+							function drawEnergyGraph(data){
+								/*
+									In this function the energy graph is drawn. It expects data under the format:
+									{mfe: x, frequency: y}
+									Where mfe = minimum free energy
+								*/
+								var margin = {top: 20, right: 20, bottom: 30, left: 40};
+								//	width = 960 - margin.left - margin.right,
+								//	height = 500 - margin.top - margin.bottom;
+								var width = 300;
+								var height = 200;
+								var x = d3.scale.ordinal()
+								    .rangeRoundBands([0, width], .1);
+								var y = d3.scale.linear()
+									    .range([height, 0]);
+								var xAxis = d3.svg.axis()
+									    .scale(x)
+									    .orient("bottom");
+
+								var yAxis = d3.svg.axis()
+								    .scale(y)
+								    .orient("left")
+								    .ticks(5);
+								
+								var tip = d3.tip()
+								  .attr('class', 'd3-tip')
+								  .offset([-10, 0])
+								  .html(function(d) {
+								    return "<strong>Frequency:</strong>" + d.frequency;
+								  })
+								
+								var svg = d3.select("#energy_graph").append("svg")
+								    .attr("id", "energy_graph_svg")
+								    .attr("width", width + margin.left + margin.right)
+								    .attr("height", height + margin.top + margin.bottom)
+								    .append("g")
+								    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+								
+								svg.call(tip);
+								  x.domain(data.map(function(d) { return d.mfe; }));
+								  y.domain([0, d3.max(data, function(d) { return d.frequency; })]);
+
+								  svg.append("g")
+								      .attr("class", "x axis")
+								      .attr("transform", "translate(0," + height + ")")
+								      .call(xAxis)
+								      .selectAll("text")
+								      .style("text-anchor", "end")
+								      .attr("dx", "-.8em")
+								      .attr("dy", ".15em")
+								      .attr("transform", function(d) {
+									      return "rotate(-65)"
+								      });
+
+								  svg.append("g")
+								      .attr("class", "y axis")
+								      .call(yAxis)
+								    .append("text")
+								      .attr("transform", "rotate(-90)")
+								      .attr("y", 6)
+								      .attr("dy", ".71em")
+								      .style("text-anchor", "end")
+								      .text("Hits");
+
+								  svg.selectAll(".bar")
+								      .data(data)
+								    .enter().append("rect")
+								      .attr("class", "bar")
+								      .attr("x", function(d) { return x(d.mfe); })
+								      .attr("width", x.rangeBand())
+								      .attr("y", function(d) { return y(d.frequency); })
+								      .attr("height", function(d) { return height - y(d.frequency); })
+								      .style("fill", function(d) { return d.cut ? "#778899" : "#60AFFE";})
+								      .on('mouseover', tip.show)
+								      .on('mouseout', tip.hide);
+							}
+						</script>
+					</div>
+					<input style="margin: 5%" id="energy_rank" type="number" size="2" min="1" max="100" step="1" value="1" onchange="requestSetEnergyCutoff(this.value)" />
+				</div>
+				
+				<div id="motif_checkboxes">
+					<h3>Motif Selection</h3>
+					
+					<h4>1D Motifs</h4>
+					
+					<ul id="1d_motifs">
+						<li><label><input id="motif1_1_checkbox" type="checkbox" name="Motif 1">Motif 1<a href="javascript:{ openWindow();}">?</a></label></li>
+						<li><label><input id="motif1_2_checkbox" type="checkbox" name="Motif 2">Motif 2<a href="">?</a></label></li>
+					</ul>
+					
+					<h4>2D Motifs</h4>
+					
+					<ul id="2d_motifs">
+						<li>
+							<label><input id="motif2_1_checkbox" type="checkbox" name="Motif 1">Motif 1 <a href="">?</a></label>
+							<ul>
+								<li>
+									<label><input id="match2_1_1_checkbox" type="checkbox" name="Match 1">Match 1 <a href="">?</a></label>
+								</li>
+								<li>
+									<label><input id="match2_1_2_checkbox" type="checkbox" name="Match 2">Match 2 <a href="">?</a></label>
+								</li>
+							</ul>
+						</li>
+						<li>
+							<label><input id="motif2_2_checkbox" type="checkbox" name="Motif 2">Motif 2 <a href="">?</a></label>
+							<ul>
+								<li>
+									<label><input id="match2_2_1_checkbox" type="checkbox" name="Match 1">Match 1 <a href="">?</a></label>
+								</li>
+							</ul>
+						</li>
+						<li><label><input id="motif3_2_checkbox" type="checkbox" name="Motif 3">Motif 3<a href="">?</a></label></li>
+						<li><label><input id="motif4_2_checkbox" type="checkbox" name="Motif 4">Motif 4<a href="">?</a></label></li>
+					</ul>
+				</div>
+				
+				<input name="updateButton" type="button" value="Update" onclick="requestNewChord()" />
+				<script>
+					//============================== START CONTROLS ASSEMBLY ============================================
+					function test(data){
+						writeToScreen("the desired thing works. woohoo. " + typeof(data) + data);
+					}
+					
+					function openWindow() {
+						/*
+						I never got around to this, but I wanted to have a way to click on a match and get most of the info available directly in the web interface.
+						*/
+						var newWin;
+						var features = "toolbar=no,locationbar=0,directories=0,statusbar=0,menubar=0,scrollbar=1,resizable=yes,titlebar=1";
+						newWin = window.open("", "newWin", features);
+						var top = "<html><head><title>Motif Summary</title></head><body>";
+						var mid = "hai"
+						var end = "</body></html>";
+						newWin.document.write(top);
+						newWin.document.write(mid);
+						newWin.document.write(end);
+						newWin.document.close();
+					}
+					
+					//============================== END CONTROLS ASSEMBLY ==============================================
+				</script>
+				
+			</div>
+		</div>
+	</body>
+</html>

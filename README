@@ -1,0 +1,10 @@
+MODAWGS
+
+Fire up the server located in ./server/main.py. From there, it will ask you where the outputs of FIMO, Seed, and DREME are located (XML formats only), and where the original FASTA files are located.
+
+After that, your data can be analysed on port 8000 via any WebSocket compliant web browser. The default viewer is located in ./viewer/index.html . It was tested extensively with versions of Chrome, Chromium, and Firefox released after mid-2014.
+
+Any browser that can run D3.js should be able to run the viewer. Each tab opens up a new View Model, so you can play with your results to get different interpretations.
+
+Future revisions might have an option to precalculate a compatibility matrix -- at the moment, compatibility is handled on-demand, which isn't ideal.
+
