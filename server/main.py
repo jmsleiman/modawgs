@@ -155,6 +155,7 @@ if __name__ == "__main__":
 #     #  #    # #     # #     # #  #  # #     # #     #
 #     #   ####  ######  #     #  ## ##   #####   #####"""
 	print "Modawgs v1.0b"
+	print "Version from 2015-03-30"
 	print "At the moment, you'll need to run your own FASTA file in Seed, DREME, and FIMO seperately. Sorry!"
 
 	dremeSource = None
@@ -162,46 +163,46 @@ if __name__ == "__main__":
 	fastaSource = None
 	fimoSource = None
 	
-	seedSource = file("seed.xml", "r")
-	dremeSource = file("dreme.xml", "r")
-	fastaSource = file("data.fas", "r")
-	fimoSource = file("fimo.txt", "r")
+	#seedSource = file("seed.xml", "r")
+	#dremeSource = file("dreme.xml", "r")
+	#fastaSource = file("data.fas", "r")
+	#fimoSource = file("fimo.txt", "r")
 	
-	#while(True):
-		#print "Please provide a file path for Seed's XML output: "
-		#seed = raw_input("filename: " )
-		#try:
-			#seedSource = file(seed, "r")
-			#break
-		#except Exception as e:
-			#print "Sorry, {0} came up. Try again.".format(e)
+	while(True):
+		print "Please provide a file path for Seed's XML output: "
+		seed = raw_input("filename: " )
+		try:
+			seedSource = file(seed, "r")
+			break
+		except Exception as e:
+			print "Sorry, {0} came up. Try again.".format(e)
 	
-	#while(True):
-		#print "Please provide a file path for Dreme's XML output: "
-		#dreme = raw_input("filename: " )
-		#try:
-			#dremeSource = file(dreme, "r")
-			#break
-		#except Exception as e:
-			#print "Sorry, {0} came up. Try again.".format(e)
+	while(True):
+		print "Please provide a file path for Dreme's XML output: "
+		dreme = raw_input("filename: " )
+		try:
+			dremeSource = file(dreme, "r")
+			break
+		except Exception as e:
+			print "Sorry, {0} came up. Try again.".format(e)
 	
-	#while(True):
-		#print "Please provide a file path for FIMO's txt output: "
-		#fimo = raw_input("filename: " )
-		#try:
-			#fimoSource = file(fimo, "r")
-			#break
-		#except Exception as e:
-			#print "Sorry, {0} came up. Try again.".format(e)
+	while(True):
+		print "Please provide a file path for FIMO's txt output: "
+		fimo = raw_input("filename: " )
+		try:
+			fimoSource = file(fimo, "r")
+			break
+		except Exception as e:
+			print "Sorry, {0} came up. Try again.".format(e)
 	
-	#while(True):
-		#print "Please provide a file path for your FASTA output: "
-		#fasta = raw_input("filename: " )
-		#try:
-			#fastaSource = file(fasta, "r")
-			#break
-		#except Exception as e:
-			#print "Sorry, {0} came up. Try again.".format(e)
+	while(True):
+		print "Please provide a file path for your FASTA output: "
+		fasta = raw_input("filename: " )
+		try:
+			fastaSource = file(fasta, "r")
+			break
+		except Exception as e:
+			print "Sorry, {0} came up. Try again.".format(e)
 	
 	print "Thanks! When you're ready, open the index.html file in the Viewer folder to autoconnect to the viewer."
 	print "If you've already loaded it, just refresh the page or hit 'connect'."

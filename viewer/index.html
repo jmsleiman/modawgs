@@ -210,7 +210,7 @@
 				/*
 				Sometimes a fast user can trick the machine.
 				*/
-				if(newCutoff > document.getElementById("energy_rank").max){
+				if(parseInt(newCutoff) > parseInt(document.getElementById("energy_rank").max)){
 					console.log("requestSetEnergyCutoff: Value too high: " + newCutoff);
 				}
 				else{
